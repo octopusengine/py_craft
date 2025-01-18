@@ -70,21 +70,54 @@ def load_blocks():
     except FileNotFoundError:
         print("No save file found.")
 
-# Clear function
+
 def clear_blocks():
     global blocks
-    for block in blocks[:]:  # Create a copy of the list to safely iterate while modifying
+    # Filtrujeme uživatelské bloky (vše nad vrstvou 0)
+    user_blocks = [block for block in blocks if block[1] > 0]
+    for block in user_blocks:
         for entity in scene.entities:
             if (int(entity.position.x), int(entity.position.y), int(entity.position.z)) == tuple(block[:3]):
                 destroy(entity)
-    blocks.clear()
-    print("All blocks cleared.")
+        blocks.remove(block)
+    print("All user-created blocks cleared.")
+
 
 # Restore function
 def restore_player():
     player_position = (dimension // 2, 2, dimension // 2)
     minecraft_player.position = player_position
     print("Player restored to center.")
+
+# Noise function
+def generate_noise():
+    import random
+    for _ in range(20):
+        x = random.randint(0, dimension - 1)
+        z = random.randint(0, dimension - 1)
+        y = 1  # Start from layer +1
+
+        while any(block[:3] == [x, y, z] for block in blocks):
+            y += 1  # Move to the next higher layer if block exists
+
+        # Place the block without playing sound
+        texture_map = {
+            'Stone Block': stone_block_texture,
+            'Sand Block': sand_block_texture,
+            'Stone Brick': stone_brick_texture,
+            'Wood Plank': wood_plank_texture,
+            'Leaves': leaves_texture,
+            'Obsidian': obsidian_texture,
+            'Sponge': sponge_texture,
+            'Gold Ore Block': gold_ore_block_texture,
+            'Diamond Ore Block': diamond_ore_block_texture,
+            'Emerald Ore Block': emerald_ore_block_texture
+        }
+        texture = texture_map.get(block_choice, stone_block_texture)
+        voxel = Voxel(position=(x, y, z), texture=texture)
+        blocks.append([x, y, z, list(texture_map.keys()).index(block_choice) + 1])
+
+    print("Noise generated.")
 
 # Declare 'update()' function for the 'Choice of Block' and 'Hand Movements' Functionalities
 def update():
@@ -124,7 +157,7 @@ def update():
     if (held_keys['w'] or held_keys['a'] or held_keys['s'] or held_keys['d']):
         pass
 
-    # Save, Load, Clear, and Restore Handling
+    # Save, Load, Clear, Restore, and Noise Handling
     if held_keys['s']:
         save_blocks()
     if held_keys['l']:
@@ -133,11 +166,13 @@ def update():
         clear_blocks()
     if held_keys['r']:
         restore_player()
+    if held_keys['n']:
+        generate_noise()
 
 ''' 'Minecraft' is a game based on 'Blocks' which is also known as 'Voxel'. 
 So, we have declared 'Voxel' class for 'Block' Manipulation in game. '''
 class Voxel(Button):
-    def __init__(self, position = (0, 0, 0), texture = sand_block_texture):
+    def __init__(self, position = (0, 0, 0), texture = sand_block_texture, play_sound=True):
         super().__init__(
             parent = scene,
             position = position,
@@ -147,6 +182,8 @@ class Voxel(Button):
             color=color.color(0, 0, random.uniform(0.9, 1)),
             highlight_color=color.gray
         )
+        if play_sound:
+            block_sound.play()
 
     # Declaration of 'input()' function for 'onClick()' operations such as 'Place Block', 'Remove Block'
     def input(self, key):
@@ -233,12 +270,22 @@ class Player_Hand(Entity):
                 self.position = Vec2(0.406, -0.42)
 
 # Make Area for your 'Minecraft' World
-dimension = 32  # 'Dimension' should be of 20X20 Blocks
+dimension = 32  # 'Dimension' should be of 32x32 Blocks
 for i in range(dimension):
     for j in range(dimension):
-        # Initialize 'Voxel' class
-        voxel = Voxel(position=(i, 0, j))
+        # Initialize ground layer
+        voxel = Voxel(position=(i, 0, j), texture=sand_block_texture)
+        blocks.append([i, 0, j, 2])
+"""
+        # Add layer -1
+        voxel = Voxel(position=(i, -1, j), texture=stone_block_texture)
+        blocks.append([i, -1, j, 1])
 
+        # Add layer -2
+        voxel = Voxel(position=(i, -2, j), texture=stone_block_texture)
+        blocks.append([i, -2, j, 1])
+"""
+        
 # Initialize your 'Minecraft' Player using FPP View
 minecraft_player = FirstPersonController()
 restore_player()  # Place player at the center on start
