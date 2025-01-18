@@ -52,11 +52,39 @@ def load_blocks():
             for row in reader:
                 x, y, z, b = map(int, row)
                 blocks.append([x, y, z, b])
-                texture = sand_block_texture if b == 2 else stone_block_texture  # Adjust as needed for other blocks
+                texture_map = {
+                    1: stone_block_texture,
+                    2: sand_block_texture,
+                    3: stone_brick_texture,
+                    4: wood_plank_texture,
+                    5: leaves_texture,
+                    6: obsidian_texture,
+                    7: sponge_texture,
+                    8: gold_ore_block_texture,
+                    9: diamond_ore_block_texture,
+                    0: emerald_ore_block_texture
+                }
+                texture = texture_map.get(b, stone_block_texture)  # Default to stone block if type not found
                 Voxel(position=(x, y, z), texture=texture)
         print("Game loaded.")
     except FileNotFoundError:
         print("No save file found.")
+
+# Clear function
+def clear_blocks():
+    global blocks
+    for block in blocks[:]:  # Create a copy of the list to safely iterate while modifying
+        for entity in scene.entities:
+            if (int(entity.position.x), int(entity.position.y), int(entity.position.z)) == tuple(block[:3]):
+                destroy(entity)
+    blocks.clear()
+    print("All blocks cleared.")
+
+# Restore function
+def restore_player():
+    player_position = (dimension // 2, 2, dimension // 2)
+    minecraft_player.position = player_position
+    print("Player restored to center.")
 
 # Declare 'update()' function for the 'Choice of Block' and 'Hand Movements' Functionalities
 def update():
@@ -96,11 +124,15 @@ def update():
     if (held_keys['w'] or held_keys['a'] or held_keys['s'] or held_keys['d']):
         pass
 
-    # Save and Load Handling
+    # Save, Load, Clear, and Restore Handling
     if held_keys['s']:
         save_blocks()
     if held_keys['l']:
         load_blocks()
+    if held_keys['c']:
+        clear_blocks()
+    if held_keys['r']:
+        restore_player()
 
 ''' 'Minecraft' is a game based on 'Blocks' which is also known as 'Voxel'. 
 So, we have declared 'Voxel' class for 'Block' Manipulation in game. '''
@@ -124,13 +156,37 @@ class Voxel(Button):
                 # Play Block placing Sound
                 block_sound.play()
 
-                # Place Block accrding to your Choice
+                # Place Block according to your Choice
                 if block_choice == 'Stone Block':
                     voxel = Voxel(position=self.position + mouse.normal, texture=stone_block_texture)
                     blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 1])
-                if block_choice == 'Sand Block':
+                elif block_choice == 'Sand Block':
                     voxel = Voxel(position=self.position + mouse.normal, texture=sand_block_texture)
                     blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 2])
+                elif block_choice == 'Stone Brick':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=stone_brick_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 3])
+                elif block_choice == 'Wood Plank':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=wood_plank_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 4])
+                elif block_choice == 'Leaves':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=leaves_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 5])
+                elif block_choice == 'Obsidian':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=obsidian_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 6])
+                elif block_choice == 'Sponge':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=sponge_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 7])
+                elif block_choice == 'Gold Ore Block':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=gold_ore_block_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 8])
+                elif block_choice == 'Diamond Ore Block':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=diamond_ore_block_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 9])
+                elif block_choice == 'Emerald Ore Block':
+                    voxel = Voxel(position=self.position + mouse.normal, texture=emerald_ore_block_texture)
+                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 0])
 
             # Press 'Right Click' to 'Remove Block' 
             if key == 'right mouse down':
@@ -177,7 +233,7 @@ class Player_Hand(Entity):
                 self.position = Vec2(0.406, -0.42)
 
 # Make Area for your 'Minecraft' World
-dimension = 20  # 'Dimension' should be of 20X20 Blocks
+dimension = 32  # 'Dimension' should be of 20X20 Blocks
 for i in range(dimension):
     for j in range(dimension):
         # Initialize 'Voxel' class
@@ -185,6 +241,7 @@ for i in range(dimension):
 
 # Initialize your 'Minecraft' Player using FPP View
 minecraft_player = FirstPersonController()
+restore_player()  # Place player at the center on start
 
 # Initialize 'Sky' for your 'Minecraft World'
 sky = Sky()
