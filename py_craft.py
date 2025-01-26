@@ -5,22 +5,21 @@ import random
 import os
 import csv
 
-___version___ = "0.2.0" # 2025/01
+___version___ = "0.2.1" # 2025/01
 
-
+SCREEN_DEBUG = False
+WORLD_SIZE = 32 
 # SEED = 12345
 SEED = 0x0c1e24e5917779d297e14d45f14e1a1a # Andreas
 # seed = random.randint(1, 1000)
-noise = PerlinNoise(octaves=3, seed=SEED)
-
-#create an instance of the ursina app
-app = Ursina()
-
-#define game variables
-selected_block = "grass"
-blocks = []
 DEFAULT_GAME_FILE = os.path.join(os.path.dirname(__file__), 'games/default.csv')
 active_game_file = DEFAULT_GAME_FILE
+
+noise = PerlinNoise(octaves=3, seed=SEED)
+app = Ursina() #create an instance of the ursina app
+
+selected_block = "grass"
+blocks = []
 
 
 def setup_game_file():
@@ -58,7 +57,6 @@ def setup_game_file():
     input_field.text_color = color.gray
     input_field.background_color = color.black  
 
-
     # Automatically focus on the input field
     input_field.active = True
 
@@ -78,6 +76,8 @@ block_textures = {
     "stone": load_texture("assets/textures/wallStone.png"),
     "bedrock": load_texture("assets/textures/stone07.png"),
     "stone05": load_texture("assets/textures/stone05.png"),
+    "stone06": load_texture("assets/textures/stone06.png"),
+    "wallbrick01": load_texture("assets/textures/wallBrick01.png"),
     "ice01": load_texture("assets/textures/ice01.png"),
     "lava01": load_texture("assets/textures/lava01.png"),
     "water": load_texture("assets/textures/water.png")
@@ -88,12 +88,13 @@ block_types = [
     ("grass", "1"),
     ("dirt", "2"),
     ("stone", "3"),
-    ("stone05", "4"),
-    ("ice01", "5"),
-    ("lava01", "6"),
-    ("water", "7")
+    ("wallbrick01", "4"),
+    ("stone05", "5"),
+    ("stone06", "6"),
+    ("lava01", "7"),
+    ("ice01", "8"),
+    ("water", "9")
 ]
-
 
 # Create a black bar at the bottom of the screen
 info_bar = Entity(
@@ -119,6 +120,14 @@ info_text = Text(text=active_game_file, world_parent=camera.ui, color=color.whit
     origin=(-0.5, 0), position=(0, -0.45)  # Absolute position on the screen
 )
 
+
+class Sky(Entity):
+    def __init__(self):
+        super().__init__(
+            parent = scene, model = 'sphere',
+            texture = load_texture('assets/textures/sky.png'),
+            scale = 150, double_sided = True
+        )
 
 
 class Block(Entity):
@@ -193,21 +202,132 @@ def clear_below_level(level):
 
 # Restore function
 def restore_player():
-    player.position = Vec3(0, 15, 0)
+    player.position = Vec3(0, 20, 0)
     print("Player restored to center.")
 
 
-# Noise function
 def generate_noise():
+    global selected_block  # Přístup k aktuálně vybranému bloku
+
+    if not selected_block:
+        print("No block selected. Defaulting to 'grass'.")
+        selected_block = "grass"
+
     for _ in range(20):
-        x = random.randint(-10, 10)
-        z = random.randint(-10, 10)
-        y = random.randint(1, 10)
+        x = random.randint(-int(WORLD_SIZE / 2), int(WORLD_SIZE / 2))
+        z = random.randint(-int(WORLD_SIZE / 2), int(WORLD_SIZE / 2))
+        y = random.randint(1, int(WORLD_SIZE / 2))
 
-        block = Block(position=(x, y, z), block_type="stone")
-        blocks.append([x, y, z, "stone"])
-    print("Noise generated.")
+        # Vytvoření bloku na náhodné pozici
+        block = Block(position=(x, y - 7, z), block_type=selected_block)
+        blocks.append([x, y, z, selected_block])
+    print(f"Noise generated with block type: {selected_block}")
 
+
+def display_map():
+    global map_panel
+    if 'map_panel' in globals() and map_panel.enabled:
+        return
+
+    matrix_size = WORLD_SIZE
+    square_size = 10
+    border_size = 20
+    scale_factor = 2
+    width_scale_factor = 2
+    max_depth = -16 # -16
+
+    # Výpočet celkových rozměrů mapy
+    scene_width = (matrix_size * square_size * scale_factor * width_scale_factor)
+    scene_height = (matrix_size * square_size * scale_factor)
+
+    # Vytvoření panelu mapy
+    map_panel = Entity(
+        parent=camera.ui,
+        model='quad',
+        color=color.black,
+        scale=((scene_width + 2 * border_size) / window.size[0],
+               (scene_height + 2 * border_size) / window.size[1]),
+        position=(0, 0)  # Centrální pozice panelu
+    )
+
+    # Ofset pro umístění jednotlivých čtverečků na správné místo
+    x_offset = -(matrix_size / 2) * (square_size * scale_factor * width_scale_factor) / window.size[0]
+    z_offset = -(matrix_size / 2) * (square_size * scale_factor) / window.size[1]
+
+    # Procházení každé buňky mapy a určení vrstev
+    for x in range(matrix_size):
+        for z in range(matrix_size):
+            # Zjištění maximální výšky kamene na souřadnicích (x, z)
+            highest_block = max(
+                (block[1] for block in blocks if int(block[0]) == x - int(matrix_size / 2)
+                 and int(block[2]) == z - int(matrix_size / 2) and block[3] == "stone"),
+                default=max_depth
+            )
+
+            # Normalizace výšky na odstín šedé
+            gray_value = int(255 * (highest_block - max_depth) / abs(max_depth)) if highest_block > max_depth else 0
+            block_color = color.rgb(gray_value, gray_value, gray_value)
+
+            # Přidání čtverečku na mapu
+            square = Entity(
+                parent=map_panel,
+                model='quad',
+                color=block_color,
+                scale=((square_size * scale_factor * width_scale_factor) / window.size[0],
+                       (square_size * scale_factor) / window.size[1]),
+                position=(
+                    x * (square_size * scale_factor * width_scale_factor) / window.size[0] + x_offset,
+                    z * (square_size * scale_factor) / window.size[1] + z_offset
+                )
+            )
+
+
+def display_perlin_map():
+    global map_panel  # Umožní přístup k panelu pro zavírání klávesou
+    if 'map_panel' in globals() and map_panel.enabled:  # Pokud již mapa existuje, neotevírej ji znovu
+        return
+
+    # Rozměry mapy
+    matrix_size = WORLD_SIZE
+    square_size = 10
+    border_size = 20
+    scale_factor = 2
+    width_scale_factor = 2
+
+    scene_width = (matrix_size * square_size * scale_factor * width_scale_factor) + (2 * border_size)
+    scene_height = (matrix_size * square_size * scale_factor) + (2 * border_size)
+
+    map_panel = Entity(
+        parent=camera.ui,
+        model='quad',
+        color=color.black,
+        scale=(scene_width / window.size[0], scene_height / window.size[1]),
+        position=(0, 0)
+    )
+
+    max_val = 16
+    for x in range(matrix_size):
+        for z in range(matrix_size):
+            # Vypočítání výšky na základě Perlinova šumu
+            height = noise([x * 0.1, z * 0.1]) * max_val  # Maximální výška
+            height = max(0, min(max_val, height))  # Oříznutí hodnoty na rozsah 0–10
+
+            # Normalizace výšky na odstín šedé
+            gray_value = int(255 * (height / 16)) # 10
+            block_color = color.rgb(gray_value, gray_value, gray_value)
+
+            # Přidání čtverečku
+            square = Entity(
+                parent=map_panel,
+                model='quad',
+                color=block_color,
+                scale=((square_size * scale_factor * width_scale_factor) / window.size[0],
+                       (square_size * scale_factor) / window.size[1]),
+                position=(
+                    (x - matrix_size // 2) * (square_size * scale_factor * width_scale_factor) / window.size[0],
+                    (z - matrix_size // 2) * (square_size * scale_factor) / window.size[1]
+                )
+            )
 
 #create player
 player = FirstPersonController(
@@ -226,8 +346,8 @@ mini_block = Entity(
 
 #create the ground
 min_height = -5
-for x in range(-10, 10):
-    for z in range(-10, 10):
+for x in range(-int(WORLD_SIZE/2), int(WORLD_SIZE/2)):
+    for z in range(-int(WORLD_SIZE/2), int(WORLD_SIZE/2)):
         height = noise([x * 0.02, z * 0.02])
         height = math.floor(height * 7.5)
         for y in range(height, min_height - 1, -1):
@@ -246,7 +366,7 @@ for x in range(-10, 10):
 
 def input(key):
     global selected_block
-
+    global map_panel
     # Check if the key matches any in block_types
     for block, block_key in block_types:
         if key == block_key:
@@ -276,25 +396,25 @@ def input(key):
     if key == 'c': clear_blocks()
     if key == 'r': restore_player()
     if key == 'n': generate_noise()
-
+    if key == 'm': display_map()
+    if key == 'p': display_perlin_map()
+    if key == 'x' and 'map_panel' in globals() and map_panel.enabled: map_panel.disable()
 
 def update():
+    global position_text, cursor_position_text
     
-    global position_text
-    player_position = player.position
-    position_text.text = f"P: x={player_position.x:.2f}, y={player_position.y:.2f}, z={player_position.z:.2f}"
-    
-    global cursor_position_text
-    # Perform a raycast to get the block the cursor is pointing at
-    hit_info = raycast(camera.world_position, camera.forward, distance=10)
-    if hit_info.hit:
-        # Get the position of the block and convert it to integers
-        block_position = hit_info.entity.position
-        cursor_position_text.text = f"C: x={int(block_position.x)}, y={int(block_position.y)}, z={int(block_position.z)}"
-    else:
-        cursor_position_text.text = "Cursor: Not pointing at a block"
+    if SCREEN_DEBUG:
+        player_position = player.position
+        position_text.text = f"P: x={player_position.x:.2f}, y={player_position.y:.2f}, z={player_position.z:.2f}"
 
-
+        # Perform a raycast to get the block the cursor is pointing at
+        hit_info = raycast(camera.world_position, camera.forward, distance=10)
+        if hit_info.hit:
+            # Get the position of the block and convert it to integers
+            block_position = hit_info.entity.position
+            cursor_position_text.text = f"C: x={int(block_position.x)}, y={int(block_position.y)}, z={int(block_position.z)}"
+        else:
+            cursor_position_text.text = "Cursor: Not pointing at a block"
 
     mini_block.texture = block_textures.get(selected_block)
 
@@ -322,9 +442,10 @@ window.fps_counter.enabled = True
 def initialize_player():
     restore_player()
     print("Player initialized.")
-
 invoke(initialize_player, delay=1) # Schedule the initialization
 """
 setup_game_file()
+sky = Sky()
+
 # start the app
 app.run()
