@@ -1,311 +1,330 @@
-import os, csv
 from ursina import *
 from ursina.prefabs.first_person_controller import FirstPersonController
+from perlin_noise import PerlinNoise
+import random
+import os
+import csv
 
-___version___ = "0.1" # 2023
+___version___ = "0.2.0" # 2025/01
 
-# Initialize 'Minecraft' app using 'Ursina' Engine
-minecraft_app = Ursina()
 
-# All Block Textures
-sand_block_texture = load_texture('assets/graphic/Sand.png')
-stone_block_texture = load_texture('assets/graphic/Stone_Block.png')
-stone_brick_texture = load_texture('assets/graphic/Stone_Brick.png')
-wood_plank_texture = load_texture('assets/graphic/Wood_Plank.jpg')
-leaves_texture = load_texture('assets/graphic/Leaves.png')
-obsidian_texture = load_texture('assets/graphic/Obsidian.png')
-sponge_texture = load_texture('assets/graphic/Sponge.jpg')
-gold_ore_block_texture = load_texture('assets/graphic/Gold_Ore_Block.png')
-diamond_ore_block_texture = load_texture('assets/graphic/Diamond_Ore_Block.png')
-emerald_ore_block_texture = load_texture('assets/graphic/Emerald_Ore_Block.png')
+# SEED = 12345
+SEED = 0x0c1e24e5917779d297e14d45f14e1a1a # Andreas
+# seed = random.randint(1, 1000)
+noise = PerlinNoise(octaves=3, seed=SEED)
 
-# Sky Texture
-sky_texture = load_texture('assets/graphic/Sky.png')
+#create an instance of the ursina app
+app = Ursina()
 
-# Block Placing/ Destroying Sound
-block_sound = Audio('assets/sound/Block_Sound.mp3', loop = False, autoplay = False)
-
-# Player 'WASD' Movement Sound
-player_movement_sound = Audio('assets/sound/Player_Movement_Sound.mp3', loop = True, autoplay = False)
-
-# By Declaration of 'Block Choice Variable' and by default block was 'Stone Block'
-block_choice = 'Stone Block'
-
-# List to store block data
+#define game variables
+selected_block = "grass"
 blocks = []
-GAME_FILE = os.path.join(os.path.dirname(__file__), 'games/game.csv')
+DEFAULT_GAME_FILE = os.path.join(os.path.dirname(__file__), 'games/default.csv')
+active_game_file = DEFAULT_GAME_FILE
 
-# Save function
+
+def setup_game_file():
+    global active_game_file, info_text
+
+    # Function to handle file name setting
+    def set_game_file():
+        global active_game_file
+        user_input = input_field.text.strip()
+        if user_input:
+            active_game_file = os.path.normpath(
+                os.path.join(os.path.dirname(__file__), f"games/{user_input}.csv")
+            )
+            print(f"Game file set to: {active_game_file}")
+        else:
+            active_game_file = os.path.normpath(DEFAULT_GAME_FILE)
+            print(f"Using default game file: {active_game_file}")
+        
+        # Update info_text dynamically
+        info_text.text = f"Active file: {active_game_file}"
+
+        # Disable input field and button
+        input_field.enabled = False
+        ok_button.enabled = False
+
+    # Create an input field
+    input_field = InputField(
+        parent=camera.ui,
+        position=(0, 0.2),
+        placeholder='Enter game file name or leave empty for default'
+    )
+    #input_field.scale = (0.5, 0.1)  # Manually set the scale to avoid conflict
+    input_field.scale = (0.5, 0.05)  
+    # input_field.font = 'assets/fonts/your_font_file.ttf'  
+    input_field.text_color = color.gray
+    input_field.background_color = color.black  
+
+
+    # Automatically focus on the input field
+    input_field.active = True
+
+    # Create an OK button
+    ok_button = Button(
+        text="OK",
+        parent=camera.ui,
+        scale=(0.2, 0.1),
+        position=(0, 0),
+        on_click=set_game_file
+    )
+
+
+block_textures = {
+    "grass": load_texture("assets/textures/groundEarth.png"),
+    "dirt": load_texture("assets/textures/groundMud.png"),
+    "stone": load_texture("assets/textures/wallStone.png"),
+    "bedrock": load_texture("assets/textures/stone07.png"),
+    "stone05": load_texture("assets/textures/stone05.png"),
+    "ice01": load_texture("assets/textures/ice01.png"),
+    "lava01": load_texture("assets/textures/lava01.png"),
+    "water": load_texture("assets/textures/water.png")
+}
+
+# Define a list of blocks and their associated keys
+block_types = [
+    ("grass", "1"),
+    ("dirt", "2"),
+    ("stone", "3"),
+    ("stone05", "4"),
+    ("ice01", "5"),
+    ("lava01", "6"),
+    ("water", "7")
+]
+
+
+# Create a black bar at the bottom of the screen
+info_bar = Entity(
+    parent=camera.ui,
+    model='quad',
+    color=color.black,
+    scale=(window.aspect_ratio, 0.1),  # Height of approximately 50px
+    position=(0, -0.45)  # Positioned near the bottom of the screen
+)
+
+#  position 20px = 20 * (2 / 1080) ≈ 0.037.
+pixel_to_relative_x = 30 * (2 / window.size[0])
+
+loading_text = Text(text='', position=(0.7, 0.45), origin=(0, 0), scale=1.5, color=color.white, background=True)
+position_text = Text(text='', parent=camera.ui,
+    position=(-0.9+pixel_to_relative_x, -0.39),  # Top-left corner
+    origin=(-0.5, 0), scale=1, color=color.white)
+cursor_position_text = Text(text='', parent=camera.ui,
+    position=(-0.9+pixel_to_relative_x, -0.36),  # Top-left corner
+    origin=(-0.5, 0), scale=1, color=color.white)
+
+info_text = Text(text=active_game_file, world_parent=camera.ui, color=color.white, scale=1,
+    origin=(-0.5, 0), position=(0, -0.45)  # Absolute position on the screen
+)
+
+
+
+class Block(Entity):
+    def __init__(self, position, block_type):
+        super().__init__(
+            position=position,
+            model="assets/models/block_model",
+            scale=1,
+            origin_y=-0.5,
+            texture=block_textures.get(block_type),
+            collider="box",
+            color=color.white if block_type not in ["water", "ice01"] else (
+                color.rgba(255, 255, 255, 200) if block_type == "water" else color.rgba(255, 255, 255, 128)
+            )
+        )
+        self.block_type = block_type
+
+
 def save_blocks():
-    with open(GAME_FILE, 'w', newline='') as file:
+    with open(os.path.normpath(active_game_file), 'w', newline='') as file:
         writer = csv.writer(file)
         for block in blocks:
-            writer.writerow(block)
-    print("Game saved.")
+            block_type_index = next((i for i, (name, _) in enumerate(block_types) if name == block[3]), None)
+            if block_type_index is not None:
+                writer.writerow(block[:3] + [block_type_index])
+    print("Game saved to", active_game_file)
 
-# Load function
+
 def load_blocks():
     global blocks
     try:
-        with open(GAME_FILE, 'r') as file:  # Sjednocení cesty
-            reader = csv.reader(file)
-            for row in reader:
-                x, y, z, b = map(int, row)
-                blocks.append([x, y, z, b])
-                texture_map = {
-                    1: stone_block_texture,
-                    2: sand_block_texture,
-                    3: stone_brick_texture,
-                    4: wood_plank_texture,
-                    5: leaves_texture,
-                    6: obsidian_texture,
-                    7: sponge_texture,
-                    8: gold_ore_block_texture,
-                    9: diamond_ore_block_texture,
-                    0: emerald_ore_block_texture
-                }
-                texture = texture_map.get(b, stone_block_texture)  # Default to stone block if type not found
-                Voxel(position=(x, y, z), texture=texture)
+        with open(os.path.normpath(active_game_file), 'r') as file:
+            reader = list(csv.reader(file))
+            total_blocks = len(reader)
+            for index, row in enumerate(reader):
+                x, y, z, block_type_index = row
+                block_type_index = int(block_type_index)
+                block_type = block_types[block_type_index][0]
+                blocks.append([float(x), float(y), float(z), block_type])
+                Block(position=(float(x), float(y), float(z)), block_type=block_type)
+
+                if (index + 1) % 10 == 0 or index + 1 == total_blocks:
+                    loading_text.text = f"Loaded {index + 1} of {total_blocks} blocks"
+                    app.step()
         print("Game loaded.")
+        loading_text.text = ""
     except FileNotFoundError:
-        print("No save file found.")
+        print(f"No save file found at: {active_game_file}")
 
 
+# Clear function
 def clear_blocks():
+    for entity in scene.entities:
+        if hasattr(entity, 'block_type') and entity.block_type != "bedrock":
+            destroy(entity)
     global blocks
-    # Filtrujeme uživatelské bloky (vše nad vrstvou 0)
-    user_blocks = [block for block in blocks if block[1] > 0]
-    for block in user_blocks:
+    blocks = []
+    print("All blocks cleared.")
+
+
+# Clear below specific level
+def clear_below_level(level):
+    global blocks
+    blocks_to_remove = [block for block in blocks if block[1] < level]
+    for block in blocks_to_remove:
         for entity in scene.entities:
-            if (int(entity.position.x), int(entity.position.y), int(entity.position.z)) == tuple(block[:3]):
+            if (int(entity.position.x), int(entity.position.y), int(entity.position.z)) == (int(block[0]), int(block[1]), int(block[2])):
                 destroy(entity)
         blocks.remove(block)
-    print("All user-created blocks cleared.")
+    print(f"Blocks below level {level} cleared.")
 
 
 # Restore function
 def restore_player():
-    player_position = (dimension // 2, 2, dimension // 2)
-    minecraft_player.position = player_position
+    player.position = Vec3(0, 15, 0)
     print("Player restored to center.")
+
 
 # Noise function
 def generate_noise():
-    import random
     for _ in range(20):
-        x = random.randint(0, dimension - 1)
-        z = random.randint(0, dimension - 1)
-        y = 1  # Start from layer +1
+        x = random.randint(-10, 10)
+        z = random.randint(-10, 10)
+        y = random.randint(1, 10)
 
-        while any(block[:3] == [x, y, z] for block in blocks):
-            y += 1  # Move to the next higher layer if block exists
-
-        # Place the block without playing sound
-        texture_map = {
-            'Stone Block': stone_block_texture,
-            'Sand Block': sand_block_texture,
-            'Stone Brick': stone_brick_texture,
-            'Wood Plank': wood_plank_texture,
-            'Leaves': leaves_texture,
-            'Obsidian': obsidian_texture,
-            'Sponge': sponge_texture,
-            'Gold Ore Block': gold_ore_block_texture,
-            'Diamond Ore Block': diamond_ore_block_texture,
-            'Emerald Ore Block': emerald_ore_block_texture
-        }
-        texture = texture_map.get(block_choice, stone_block_texture)
-        voxel = Voxel(position=(x, y, z), texture=texture)
-        blocks.append([x, y, z, list(texture_map.keys()).index(block_choice) + 1])
-
+        block = Block(position=(x, y, z), block_type="stone")
+        blocks.append([x, y, z, "stone"])
     print("Noise generated.")
 
-# Declare 'update()' function for the 'Choice of Block' and 'Hand Movements' Functionalities
+
+#create player
+player = FirstPersonController(
+    mouse_sensitivity=Vec2(100, 100),
+    position=(0, 5, 0)
+)
+
+mini_block = Entity(
+    parent=camera,
+    model="assets/models/block_model",
+    scale=0.2,
+    texture=block_textures.get(selected_block),
+    position=(0.35, -0.25, 0.5),
+    rotation=(-15, -30, -5)
+)
+
+#create the ground
+min_height = -5
+for x in range(-10, 10):
+    for z in range(-10, 10):
+        height = noise([x * 0.02, z * 0.02])
+        height = math.floor(height * 7.5)
+        for y in range(height, min_height - 1, -1):
+            if y == min_height:
+                block = Block((x, y + min_height, z), "bedrock")
+            elif y == height:
+                block = Block((x, y + min_height, z), "grass")
+                blocks.append([x, y + min_height, z, "grass"])
+            elif height - y > 2:
+                block = Block((x, y + min_height, z), "stone")
+                blocks.append([x, y + min_height, z, "stone"])
+            else:
+                block = Block((x, y + min_height, z), "dirt")
+                blocks.append([x, y + min_height, z, "dirt"])
+
+
+def input(key):
+    global selected_block
+
+    # Check if the key matches any in block_types
+    for block, block_key in block_types:
+        if key == block_key:
+            selected_block = block
+            break
+
+    # Place block
+    if key == "left mouse down":
+        hit_info = raycast(camera.world_position, camera.forward, distance=10)
+        if hit_info.hit:
+            block = Block(hit_info.entity.position + hit_info.normal, selected_block)
+            blocks.append([hit_info.entity.position.x + hit_info.normal.x,
+                           hit_info.entity.position.y + hit_info.normal.y,
+                           hit_info.entity.position.z + hit_info.normal.z,
+                           selected_block])
+
+    # Delete block
+    if key == "right mouse down" and mouse.hovered_entity:
+        if not mouse.hovered_entity.block_type == "bedrock":
+            position = mouse.hovered_entity.position
+            blocks[:] = [b for b in blocks if b[:3] != [position.x, position.y, position.z]]
+            destroy(mouse.hovered_entity)
+
+    # Additional functionalities
+    if key == 's': save_blocks()
+    if key == 'l': load_blocks()
+    if key == 'c': clear_blocks()
+    if key == 'r': restore_player()
+    if key == 'n': generate_noise()
+
+
 def update():
-    global block_choice
-    if held_keys['1']:
-        block_choice = 'Stone Block'
-    if held_keys['2']:
-        block_choice = 'Sand Block'
-    if held_keys['3']:
-        block_choice = 'Stone Brick'
-    if held_keys['4']:
-        block_choice = 'Wood Plank'
-    if held_keys['5']:
-        block_choice = 'Leaves'
-    if held_keys['6']:
-        block_choice = 'Obsidian'
-    if held_keys['7']:
-        block_choice = 'Sponge'
-    if held_keys['8']:
-        block_choice = 'Gold Ore Block'
-    if held_keys['9']:
-        block_choice = 'Diamond Ore Block'
-    if held_keys['0']:
-        block_choice = 'Emerald Ore Block'
-
-    # Hand Movement Part
-    """
-    if held_keys['left mouse'] or held_keys['right mouse']:
-        player_hand.active()
+    
+    global position_text
+    player_position = player.position
+    position_text.text = f"P: x={player_position.x:.2f}, y={player_position.y:.2f}, z={player_position.z:.2f}"
+    
+    global cursor_position_text
+    # Perform a raycast to get the block the cursor is pointing at
+    hit_info = raycast(camera.world_position, camera.forward, distance=10)
+    if hit_info.hit:
+        # Get the position of the block and convert it to integers
+        block_position = hit_info.entity.position
+        cursor_position_text.text = f"C: x={int(block_position.x)}, y={int(block_position.y)}, z={int(block_position.z)}"
     else:
-        player_hand.passive()
-    """    
-  
-    # 'WASD' Movement Sound of Player 
-    if not (held_keys['w'] or held_keys['a'] or held_keys['s'] or held_keys['d']):
-        player_movement_sound.play()
-    if (held_keys['w'] or held_keys['a'] or held_keys['s'] or held_keys['d']):
-        pass
+        cursor_position_text.text = "Cursor: Not pointing at a block"
 
-    # Save, Load, Clear, Restore, and Noise Handling
-    if held_keys['s']:
-        save_blocks()
-    if held_keys['l']:
-        load_blocks()
-    if held_keys['c']:
-        clear_blocks()
-    if held_keys['r']:
-        restore_player()
-    if held_keys['n']:
-        generate_noise()
 
-''' 'Minecraft' is a game based on 'Blocks' which is also known as 'Voxel'. 
-So, we have declared 'Voxel' class for 'Block' Manipulation in game. '''
-class Voxel(Button):
-    def __init__(self, position = (0, 0, 0), texture = sand_block_texture, play_sound=True):
-        super().__init__(
-            parent = scene,
-            position = position,
-            model = 'cube',
-            origin_y=0.5,
-            texture=texture,
-            color=color.color(0, 0, random.uniform(0.9, 1)),
-            highlight_color=color.gray
-        )
-        if play_sound:
-            block_sound.play()
 
-    # Declaration of 'input()' function for 'onClick()' operations such as 'Place Block', 'Remove Block'
-    def input(self, key):
-        if self.hovered:
-            # Press 'Left Click' to 'Place Block' 
-            if key == 'left mouse down':
-                # Play Block placing Sound
-                block_sound.play()
+    mini_block.texture = block_textures.get(selected_block)
 
-                # Place Block according to your Choice
-                if block_choice == 'Stone Block':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=stone_block_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 1])
-                elif block_choice == 'Sand Block':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=sand_block_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 2])
-                elif block_choice == 'Stone Brick':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=stone_brick_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 3])
-                elif block_choice == 'Wood Plank':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=wood_plank_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 4])
-                elif block_choice == 'Leaves':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=leaves_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 5])
-                elif block_choice == 'Obsidian':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=obsidian_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 6])
-                elif block_choice == 'Sponge':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=sponge_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 7])
-                elif block_choice == 'Gold Ore Block':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=gold_ore_block_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 8])
-                elif block_choice == 'Diamond Ore Block':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=diamond_ore_block_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 9])
-                elif block_choice == 'Emerald Ore Block':
-                    voxel = Voxel(position=self.position + mouse.normal, texture=emerald_ore_block_texture)
-                    blocks.append([int(self.position.x + mouse.normal.x), int(self.position.y + mouse.normal.y), int(self.position.z + mouse.normal.z), 0])
-
-            # Press 'Right Click' to 'Remove Block' 
-            if key == 'right mouse down':
-                # Play Block destroying Sound
-                block_sound.play()
-                # Save position before destroying
-                position_to_remove = [int(self.position.x), int(self.position.y), int(self.position.z)]
-                # Destroy Block
-                destroy(self)
-                # Remove block from the list
-                blocks[:] = [block for block in blocks if block[:3] != position_to_remove]
-
-# Declare 'Sky()' Class
-class Sky(Entity):
-    def __init__(self):
-        super().__init__(
-            parent=scene,
-            model='sphere',
-            texture=sky_texture,
-            scale=150,
-            double_sided=True
-        )
-        scene.ambient_color = color.rgb(30, 30, 30)  # Darken the ambient light
-        directional_light = DirectionalLight()
-        directional_light.look_at(Vec3(1, -1, -1))
-        directional_light.color = color.rgb(255, 255, 255)  # Bright light for contrast
-
-# Declare 'Player_Hand()' Class
-class Player_Hand(Entity):
-        def __init__(self):
-                super().__init__(
-                    parent=camera.ui,
-                    model='cube',
-                    scale=(0.02, 0.3, 0.02),
-                    # texture='assets/graphic/Player_Arm.png',
-                    rotation=Vec3(50, 55, -60),
-                    position=Vec2(0.406, -0.42)
-                )
-
-        def active(self):
-                self.position = Vec2(0.39, -0.39) 
-
-        def passive(self):
-                self.position = Vec2(0.406, -0.42)
-
-# Make Area for your 'Minecraft' World
-dimension = 32  # 'Dimension' should be of 32x32 Blocks
-for i in range(dimension):
-    for j in range(dimension):
-        # Initialize ground layer
-        voxel = Voxel(position=(i, 0, j), texture=sand_block_texture)
-        blocks.append([i, 0, j, 2])
+# Add white text on the bar
 """
-        # Add layer -1
-        voxel = Voxel(position=(i, -1, j), texture=stone_block_texture)
-        blocks.append([i, -1, j, 1])
-
-        # Add layer -2
-        voxel = Voxel(position=(i, -2, j), texture=stone_block_texture)
-        blocks.append([i, -2, j, 1])
+info_text = Text(
+    text='test',
+    parent=info_bar,
+    color=color.white,
+    scale=1.5,  # Scaled for better visibility (~20px height)
+    origin=(0, 0),  # Center the text
+    position=(0, 0.02)  # Adjust the Y-position relative to the bar
+)
 """
-        
-# Initialize your 'Minecraft' Player using FPP View
-minecraft_player = FirstPersonController()
-restore_player()  # Place player at the center on start
 
-# Initialize 'Sky' for your 'Minecraft World'
-sky = Sky()
-
-# Initialization of 'Player Hand' Class for 'Minecraft Player'
-# player_hand = Player_Hand()
-
-# The window title
+# The window setup
 window.title = 'Minecraft simple Clone | Using Ursina Module'
-# Show a border                
 window.borderless = False 
-# Do not go Fullscreen              
-window.fullscreen = False        
-# Do not show the in-game red 'X' that 'Closes the Window'       
-window.exit_button.visible = False 
-# Show the FPS (Frames per second) counter     
-window.fps_counter.enabled = True       
+window.fullscreen = True
+window.exit_button.visible = True 
+window.fps_counter.enabled = True
 
-# Run 'Minecraft' app
-minecraft_app.run()
+"""
+# Initialize the player after a delay
+def initialize_player():
+    restore_player()
+    print("Player initialized.")
+
+invoke(initialize_player, delay=1) # Schedule the initialization
+"""
+setup_game_file()
+# start the app
+app.run()
