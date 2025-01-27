@@ -5,7 +5,7 @@ import random
 import os
 import csv
 
-___version___ = "0.2.1" # 2025/01
+___version___ = "0.2.3" # 2025/01
 
 SCREEN_DEBUG = False
 WORLD_SIZE = 32 
@@ -19,6 +19,7 @@ noise = PerlinNoise(octaves=3, seed=SEED)
 app = Ursina() #create an instance of the ursina app
 
 selected_block = "grass"
+energy_temp = 100
 blocks = []
 
 
@@ -108,7 +109,7 @@ info_bar = Entity(
 #  position 20px = 20 * (2 / 1080) ≈ 0.037.
 pixel_to_relative_x = 30 * (2 / window.size[0])
 
-loading_text = Text(text='', position=(0.7, 0.45), origin=(0, 0), scale=1.5, color=color.white, background=True)
+# loading_text = Text(text='', position=(0.7, 0.45), origin=(0, 0), scale=1.5, color=color.white, background=True)
 position_text = Text(text='', parent=camera.ui,
     position=(-0.9+pixel_to_relative_x, -0.39),  # Top-left corner
     origin=(-0.5, 0), scale=1, color=color.white)
@@ -117,8 +118,9 @@ cursor_position_text = Text(text='', parent=camera.ui,
     origin=(-0.5, 0), scale=1, color=color.white)
 
 info_text = Text(text=active_game_file, world_parent=camera.ui, color=color.white, scale=1,
-    origin=(-0.5, 0), position=(0, -0.45)  # Absolute position on the screen
-)
+    origin=(-0.5, 0), position=(-0.9+pixel_to_relative_x, -0.43))
+info_text2 = Text(text="::", world_parent=camera.ui, color=color.white, scale=1,
+    origin=(-0.5, 0), position=(-0.9+pixel_to_relative_x, -0.46))
 
 
 class Sky(Entity):
@@ -158,6 +160,7 @@ def save_blocks():
 
 def load_blocks():
     global blocks
+    info_text2.text = "[ Load ]"
     try:
         with open(os.path.normpath(active_game_file), 'r') as file:
             reader = list(csv.reader(file))
@@ -170,10 +173,12 @@ def load_blocks():
                 Block(position=(float(x), float(y), float(z)), block_type=block_type)
 
                 if (index + 1) % 10 == 0 or index + 1 == total_blocks:
-                    loading_text.text = f"Loaded {index + 1} of {total_blocks} blocks"
+                    #loading_text.text = f"Loaded {index + 1} of {total_blocks} blocks"
+                    info_text2.text = f"Loaded {index + 1} of {total_blocks} blocks"
                     app.step()
         print("Game loaded.")
-        loading_text.text = ""
+        # loading_text.text = ""
+        info_text2.text = str(index+1)
     except FileNotFoundError:
         print(f"No save file found at: {active_game_file}")
 
@@ -202,6 +207,7 @@ def clear_below_level(level):
 
 # Restore function
 def restore_player():
+    info_text2.text = "[ Restore ]"
     player.position = Vec3(0, 20, 0)
     print("Player restored to center.")
 
@@ -225,6 +231,7 @@ def generate_noise():
 
 
 def display_map():
+    info_text2.text = "[ Map ] close: x"
     global map_panel
     if 'map_panel' in globals() and map_panel.enabled:
         return
@@ -365,8 +372,7 @@ for x in range(-int(WORLD_SIZE/2), int(WORLD_SIZE/2)):
 
 
 def input(key):
-    global selected_block
-    global map_panel
+    global selected_block, map_panel, energy_temp
     # Check if the key matches any in block_types
     for block, block_key in block_types:
         if key == block_key:
@@ -375,6 +381,8 @@ def input(key):
 
     # Place block
     if key == "left mouse down":
+        energy_temp = energy_temp - 1
+        info_text2.text = str(energy_temp)
         hit_info = raycast(camera.world_position, camera.forward, distance=10)
         if hit_info.hit:
             block = Block(hit_info.entity.position + hit_info.normal, selected_block)
@@ -385,6 +393,8 @@ def input(key):
 
     # Delete block
     if key == "right mouse down" and mouse.hovered_entity:
+        energy_temp = energy_temp - 1
+        info_text2.text = str(energy_temp)
         if not mouse.hovered_entity.block_type == "bedrock":
             position = mouse.hovered_entity.position
             blocks[:] = [b for b in blocks if b[:3] != [position.x, position.y, position.z]]
@@ -418,17 +428,6 @@ def update():
 
     mini_block.texture = block_textures.get(selected_block)
 
-# Add white text on the bar
-"""
-info_text = Text(
-    text='test',
-    parent=info_bar,
-    color=color.white,
-    scale=1.5,  # Scaled for better visibility (~20px height)
-    origin=(0, 0),  # Center the text
-    position=(0, 0.02)  # Adjust the Y-position relative to the bar
-)
-"""
 
 # The window setup
 window.title = 'Minecraft simple Clone | Using Ursina Module'
