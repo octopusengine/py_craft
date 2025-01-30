@@ -7,7 +7,8 @@ import csv
 
 ___version___ = "0.2.3" # 2025/01
 
-SCREEN_DEBUG = False
+DEBUG = True
+SCREEN_DEBUG = True
 WORLD_SIZE = 32 
 # SEED = 12345
 SEED = 0x0c1e24e5917779d297e14d45f14e1a1a # Andreas
@@ -230,6 +231,27 @@ def generate_noise():
     print(f"Noise generated with block type: {selected_block}")
 
 
+def add_square(parent, x, z, color, square_size=10, scale_factor=2, width_scale_factor=2, z_offset=0, previous_entity=None):
+
+    if previous_entity:
+        destroy(previous_entity)  # Ukončí předchozí entitu
+
+    x_offset = (x - WORLD_SIZE // 2) * (square_size * scale_factor * width_scale_factor) / window.size[0]
+    z_offset_base = (z - WORLD_SIZE // 2) * (square_size * scale_factor) / window.size[1]
+
+    entity = Entity(
+        parent=parent,
+        model='quad',
+        color=color,
+        always_on_top=True,
+        scale=((square_size * scale_factor * width_scale_factor) / window.size[0],
+               (square_size * scale_factor) / window.size[1]),
+        position=(x_offset, z_offset_base, z_offset)
+    )
+    # print(f"Square added at ({x},{z}) -> {entity.position} with color {color}, z_offset={z_offset}")
+    return entity
+
+
 def display_map():
     info_text2.text = "[ Map ] close: x"
     global map_panel
@@ -238,55 +260,42 @@ def display_map():
 
     matrix_size = WORLD_SIZE
     square_size = 10
-    border_size = 20
+    border_size = 20  # Posun mapy
     scale_factor = 2
     width_scale_factor = 2
-    max_depth = -16 # -16
-
-    # Výpočet celkových rozměrů mapy
-    scene_width = (matrix_size * square_size * scale_factor * width_scale_factor)
-    scene_height = (matrix_size * square_size * scale_factor)
+    min_depth = 0  # Nejvyšší bod je bílý
+    max_depth = -16  # Nejnižší bod je černý
 
     # Vytvoření panelu mapy
     map_panel = Entity(
         parent=camera.ui,
         model='quad',
         color=color.black,
-        scale=((scene_width + 2 * border_size) / window.size[0],
-               (scene_height + 2 * border_size) / window.size[1]),
-        position=(0, 0)  # Centrální pozice panelu
+        scale=((matrix_size * square_size * scale_factor * width_scale_factor + 2 * border_size) / window.size[0],
+               (matrix_size * square_size * scale_factor + 2 * border_size) / window.size[1]),
+        position=(0, 0)
     )
 
-    # Ofset pro umístění jednotlivých čtverečků na správné místo
-    x_offset = -(matrix_size / 2) * (square_size * scale_factor * width_scale_factor) / window.size[0]
-    z_offset = -(matrix_size / 2) * (square_size * scale_factor) / window.size[1]
-
-    # Procházení každé buňky mapy a určení vrstev
     for x in range(matrix_size):
         for z in range(matrix_size):
-            # Zjištění maximální výšky kamene na souřadnicích (x, z)
             highest_block = max(
                 (block[1] for block in blocks if int(block[0]) == x - int(matrix_size / 2)
-                 and int(block[2]) == z - int(matrix_size / 2) and block[3] == "stone"),
+                 and int(block[2]) == z - int(matrix_size / 2) and block[3] in ["stone", "grass"]),
                 default=max_depth
             )
 
-            # Normalizace výšky na odstín šedé
-            gray_value = int(255 * (highest_block - max_depth) / abs(max_depth)) if highest_block > max_depth else 0
+            normalized_height = abs(highest_block) * 20  # Normalizace od 1 (bílá) do 0 (černá)
+            gray_value = int(255 - normalized_height)
             block_color = color.rgb(gray_value, gray_value, gray_value)
 
-            # Přidání čtverečku na mapu
-            square = Entity(
-                parent=map_panel,
-                model='quad',
-                color=block_color,
-                scale=((square_size * scale_factor * width_scale_factor) / window.size[0],
-                       (square_size * scale_factor) / window.size[1]),
-                position=(
-                    x * (square_size * scale_factor * width_scale_factor) / window.size[0] + x_offset,
-                    z * (square_size * scale_factor) / window.size[1] + z_offset
-                )
-            )
+            square = add_square(map_panel, x, z, block_color, square_size, scale_factor, width_scale_factor, z_offset=0.002)
+            if DEBUG:
+                print(f"({x},{z},{highest_block})")
+
+    # **Přidání barevných bodů**
+    add_square(map_panel, 3, 5, color.red, square_size, scale_factor, width_scale_factor)
+    add_square(map_panel, 0, 0, color.blue, square_size, scale_factor, width_scale_factor)
+    add_square(map_panel, 31, 31, color.green, square_size, scale_factor, width_scale_factor)
 
 
 def display_perlin_map():
@@ -335,6 +344,7 @@ def display_perlin_map():
                     (z - matrix_size // 2) * (square_size * scale_factor) / window.size[1]
                 )
             )
+
 
 #create player
 player = FirstPersonController(
@@ -429,6 +439,23 @@ def update():
     mini_block.texture = block_textures.get(selected_block)
 
 
+def color_block(x, y, z, color=color.red):
+ 
+    block = Entity(
+        model='cube',
+        position=(x, y, z),  # Upravena pozice, aby odpovídala výšce scény
+        color=color,  # Nastavení barvy bloku
+        parent=scene,
+        scale=1,
+        collider='box'
+    )
+
+    # Přidání bloku do seznamu
+    blocks.append([x, y, z, "colored_block"])
+
+    return block  # Funkce vrátí vytvořený blok (pro případné další použití)
+
+
 # The window setup
 window.title = 'Minecraft simple Clone | Using Ursina Module'
 window.borderless = False 
@@ -445,6 +472,9 @@ invoke(initialize_player, delay=1) # Schedule the initialization
 """
 setup_game_file()
 sky = Sky()
+
+color_block(3, -3, 5, color.red)
+color_block(31, -3, 31, color.rgba(0, 0, 255, 150))
 
 # start the app
 app.run()
