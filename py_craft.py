@@ -5,7 +5,7 @@ import random
 import os
 import csv
 
-___version___ = "0.2.3" # 2025/01
+___version___ = "0.3.2" # 2025/02
 
 DEBUG = True
 SCREEN_DEBUG = True
@@ -263,8 +263,8 @@ def display_map():
     border_size = 20  # Posun mapy
     scale_factor = 2
     width_scale_factor = 2
-    min_depth = 0  # Nejvyšší bod je bílý
-    max_depth = -16  # Nejnižší bod je černý
+    min_depth = 0  
+    max_depth = -16  
 
     # Vytvoření panelu mapy
     map_panel = Entity(
@@ -284,19 +284,38 @@ def display_map():
                 default=max_depth
             )
 
-            normalized_height = abs(highest_block) * 20  # Normalizace od 1 (bílá) do 0 (černá)
+            normalized_height = abs(highest_block) * 20  
             gray_value = int(255 - normalized_height)
             block_color = color.rgb(gray_value, gray_value, gray_value)
 
-            square = add_square(map_panel, x, z, block_color, square_size, scale_factor, width_scale_factor, z_offset=0.002)
+            add_square(map_panel, x, z, block_color, square_size, scale_factor, width_scale_factor, z_offset=0.002)
+
             if DEBUG:
                 print(f"({x},{z},{highest_block})")
 
-    # **Přidání barevných bodů**
-    add_square(map_panel, 3, 5, color.red, square_size, scale_factor, width_scale_factor)
+    for block in blocks:
+        if block[3] == "colored_block":
+            x, y, z = int(block[0]), int(block[1]), int(block[2])
+            
+            # **Přepočet souřadnic pro správné umístění na mapě**
+            map_x = x + matrix_size // 2
+            map_z = z + matrix_size // 2
+
+            # Určení barvy podle entity na scéně (bez ohledu na výšku)
+            matching_entity = next((e for e in scene.entities if e.position == Vec3(x, y, z)), None)
+            if matching_entity:
+                block_color = matching_entity.color
+            else:
+                block_color = color.white  # Výchozí barva, pokud blok není nalezen
+
+            add_square(map_panel, map_x, map_z, block_color, square_size, scale_factor, width_scale_factor, z_offset=0.003)
+
+
+    # **test pozice**
+    """add_square(map_panel, 3, 5, color.red, square_size, scale_factor, width_scale_factor)
     add_square(map_panel, 0, 0, color.blue, square_size, scale_factor, width_scale_factor)
     add_square(map_panel, 31, 31, color.green, square_size, scale_factor, width_scale_factor)
-
+"""
 
 def display_perlin_map():
     global map_panel  # Umožní přístup k panelu pro zavírání klávesou
@@ -355,7 +374,7 @@ player = FirstPersonController(
 mini_block = Entity(
     parent=camera,
     model="assets/models/block_model",
-    scale=0.2,
+    scale=0.1,
     texture=block_textures.get(selected_block),
     position=(0.35, -0.25, 0.5),
     rotation=(-15, -30, -5)
@@ -391,24 +410,31 @@ def input(key):
 
     # Place block
     if key == "left mouse down":
-        energy_temp = energy_temp - 1
-        info_text2.text = str(energy_temp)
-        hit_info = raycast(camera.world_position, camera.forward, distance=10)
-        if hit_info.hit:
-            block = Block(hit_info.entity.position + hit_info.normal, selected_block)
-            blocks.append([hit_info.entity.position.x + hit_info.normal.x,
-                           hit_info.entity.position.y + hit_info.normal.y,
-                           hit_info.entity.position.z + hit_info.normal.z,
-                           selected_block])
+        if energy_temp > 1:
+            energy_temp = energy_temp - 1
+            info_text2.text = str(energy_temp) + " | " + ("*" * (energy_temp // 10))
+            hit_info = raycast(camera.world_position, camera.forward, distance=10)
+            if hit_info.hit:
+                block = Block(hit_info.entity.position + hit_info.normal, selected_block)
+                blocks.append([hit_info.entity.position.x + hit_info.normal.x,
+                            hit_info.entity.position.y + hit_info.normal.y,
+                            hit_info.entity.position.z + hit_info.normal.z,
+                            selected_block])
 
     # Delete block
     if key == "right mouse down" and mouse.hovered_entity:
-        energy_temp = energy_temp - 1
-        info_text2.text = str(energy_temp)
-        if not mouse.hovered_entity.block_type == "bedrock":
+        
+        if hasattr(mouse.hovered_entity, "block_type") and mouse.hovered_entity.block_type == "colored_block":
+            energy_temp += 100
+            print(f"Energy: {energy_temp}")
+
+        if not mouse.hovered_entity.block_type == "bedrock" and  energy_temp > 1:
+            energy_temp = energy_temp - 1
             position = mouse.hovered_entity.position
             blocks[:] = [b for b in blocks if b[:3] != [position.x, position.y, position.z]]
             destroy(mouse.hovered_entity)
+        
+        info_text2.text = str(energy_temp) + " | " + ("*" * (energy_temp // 10))
 
     # Additional functionalities
     if key == 's': save_blocks()
@@ -440,20 +466,23 @@ def update():
 
 
 def color_block(x, y, z, color=color.red):
- 
+    """ Přidá barevný blok do scény s atributem `block_type` """
+    x, y, z = round(x), round(y), round(z)  # Zaokrouhlíme na celočíselné souřadnice
+
     block = Entity(
         model='cube',
-        position=(x, y, z),  # Upravena pozice, aby odpovídala výšce scény
-        color=color,  # Nastavení barvy bloku
+        position=(x, y, z),
+        origin_y=0.5,  # Oprava výškového posunu
+        color=color,
         parent=scene,
         scale=1,
         collider='box'
     )
 
-    # Přidání bloku do seznamu
-    blocks.append([x, y, z, "colored_block"])
+    block.block_type = "colored_block"  # ✅ Přidání atributu block_type
 
-    return block  # Funkce vrátí vytvořený blok (pro případné další použití)
+    blocks.append([x, y, z, "colored_block"])  # Přidáme blok do seznamu
+    return block
 
 
 # The window setup
@@ -473,8 +502,17 @@ invoke(initialize_player, delay=1) # Schedule the initialization
 setup_game_file()
 sky = Sky()
 
-color_block(3, -3, 5, color.red)
-color_block(31, -3, 31, color.rgba(0, 0, 255, 150))
+color_block(0, -6, 0, color.red) # under
+color_block(0, -8, 0, color.red) # bott?
+color_block(0, -3, 0, color.red)
+#color_block(0, 0, 0, color.red)
+color_block(0, 8, 0, color.red)
+#color_block(5, -3, 5, color.green)
+color_block(-8, -8, 8, color.red)
+color_block(8, -8, 8, color.red)
+color_block(8, -8, -8, color.red)
+#color_block(31, -3, 31, color.rgba(0, 0, 255, 150)) # blue out
+color_block(15, -3, 15, color.rgba(0, 0, 255, 150)) # blue opa?
 
 # start the app
 app.run()
